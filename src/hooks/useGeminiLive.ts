@@ -276,22 +276,25 @@ export function useGeminiLive(options: { onSaved?: () => void } = {}) {
 
       setStatus("connecting");
       try {
-        const res = await fetch("/api/live-token", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ persona }),
-        });
-        const data = (await res.json().catch(() => null)) as { token?: string; model?: string; sessionId?: string; error?: string } | null;
-        if (!res.ok || !data?.token || !data.model || !data.sessionId) {
-          throw new Error(data?.error ?? `Token request failed (${res.status}).`);
-        }
-
-        sessionIdRef.current = data.sessionId;
-
+        // Run the two slow setup steps at the same time: asking our server for a token, and
+        // getting the audio engine ready. Before, they ran one after the other.
         const ctx = new AudioContext();
         ctxRef.current = ctx;
-        await ctx.resume();
-        await ctx.audioWorklet.addModule("/pcm-capture-worklet.js");
+        const audioReady = ctx.resume().then(() => ctx.audioWorklet.addModule("/pcm-capture-worklet.js"));
+        const tokenReady = (async () => {
+          const res = await fetch("/api/live-token", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ persona }),
+          });
+          const body = (await res.json().catch(() => null)) as { token?: string; model?: string; sessionId?: string; error?: string } | null;
+          if (!res.ok || !body?.token || !body.model || !body.sessionId) {
+            throw new Error(body?.error ?? `Token request failed (${res.status}).`);
+          }
+          sessionIdRef.current = body.sessionId;
+          return body as { token: string; model: string; sessionId: string };
+        })();
+        const [data] = await Promise.all([tokenReady, audioReady]);
 
         const ai = new GoogleGenAI({ apiKey: data.token, httpOptions: { apiVersion: "v1alpha" } });
         const session = await ai.live.connect({

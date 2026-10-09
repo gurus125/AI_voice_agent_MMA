@@ -41,7 +41,7 @@ export function VoiceAgentPanel() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-white">Voice agent</h2>
-          <p className="mt-0.5 text-xs text-muted">Talk to Gemini in real time. Headphones avoid echo.</p>
+          <p className="mt-0.5 text-xs text-muted">Talk to MMA AI in real time. Headphones avoid echo.</p>
         </div>
         <div className="flex items-center gap-3">
           {status === "connected" ? (
@@ -159,7 +159,7 @@ export function VoiceAgentPanel() {
                     }`}
                   >
                     <span className="mb-0.5 block text-[10px] uppercase tracking-wide text-muted">
-                      {t.role === "user" ? "You" : "Gemini"}
+                      {t.role === "user" ? "You" : "MMA AI"}
                     </span>
                     {t.text}
                   </p>

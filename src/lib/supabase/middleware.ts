@@ -4,9 +4,17 @@ import { NextResponse, type NextRequest } from "next/server";
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !key) {
+    // Without this check a missing env var crashes middleware with an opaque 500.
+    console.error("[middleware] NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is missing at runtime");
+    return new NextResponse("Server is missing Supabase configuration (check Vercel environment variables, then redeploy).", { status: 500 });
+  }
+
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
+    url,
+    key,
     {
       cookies: {
         getAll() {
@@ -22,9 +30,13 @@ export async function updateSession(request: NextRequest) {
   );
 
   // getUser() validates the token with Supabase (unlike reading the cookie), so it is safe for access control.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+  try {
+    const result = await supabase.auth.getUser();
+    user = result.data.user;
+  } catch (err) {
+    console.error("[middleware] supabase.auth.getUser failed:", err instanceof Error ? err.message : err);
+  }
 
   const path = request.nextUrl.pathname;
   const isLogin = path.startsWith("/login");

@@ -160,7 +160,7 @@ export default async function SessionDetail({ params }: { params: Promise<{ id: 
             {transcript.map((t, i) => (
               <div key={i} className="text-sm">
                 <span className="mr-2 text-xs uppercase tracking-wide text-muted">
-                  {t.role === "user" ? "You" : "Gemini"}
+                  {t.role === "user" ? "You" : "MMA AI"}
                   {t.at ? (
                     <>
                       {" · "}
