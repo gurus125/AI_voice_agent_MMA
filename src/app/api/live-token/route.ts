@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 import { buildLiveConfig, DEFAULT_LIVE_MODEL, MAX_PERSONA_LENGTH } from "@/lib/liveConfig";
+import { buildProfileNote } from "@/lib/profile";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -42,30 +43,15 @@ export async function POST(req: Request) {
 
   const model = process.env.GEMINI_LIVE_MODEL || DEFAULT_LIVE_MODEL;
 
-  // Cost guard: cap how many sessions one user can start per hour (counts only their own rows via RLS).
-  // The count and the token creation are independent, so they run at the same time to save a round trip.
+  // The hourly-limit count and the user's saved profile are independent, so fetch them at the same time.
   const maxPerHour = Number(process.env.MAX_SESSIONS_PER_HOUR) || 30;
-  const countPromise = supabase
-    .from("voice_sessions")
-    .select("id", { count: "exact", head: true })
-    .gte("started_at", new Date(Date.now() - 60 * 60 * 1000).toISOString());
-  const tokenPromise = (async () => {
-    const ai = new GoogleGenAI({ apiKey });
-    const now = Date.now();
-    const token = await ai.authTokens.create({
-      config: {
-        uses: 1,
-        expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
-        newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
-        liveConnectConstraints: { model, config: buildLiveConfig(persona.trim()) },
-      },
-    });
-    if (!token.name) throw new Error("No token returned");
-    return token.name;
-  })();
-  tokenPromise.catch(() => {}); // handled below; stops a stray unhandled-rejection warning if we return early
-
-  const { count } = await countPromise;
+  const [{ count }, { data: profile }] = await Promise.all([
+    supabase
+      .from("voice_sessions")
+      .select("id", { count: "exact", head: true })
+      .gte("started_at", new Date(Date.now() - 60 * 60 * 1000).toISOString()),
+    supabase.from("profiles").select("display_name, about").eq("user_id", user.id).maybeSingle(),
+  ]);
   const tCount = Date.now() - t0;
   if ((count ?? 0) >= maxPerHour) {
     return NextResponse.json(
@@ -74,10 +60,24 @@ export async function POST(req: Request) {
     );
   }
 
+  // What the agent is actually told: the chosen persona plus who the user is (built here, not in the browser).
+  const fullPersona = persona.trim() + buildProfileNote(profile);
+
   let tokenName: string;
   let tToken = 0;
   try {
-    tokenName = await tokenPromise;
+    const ai = new GoogleGenAI({ apiKey });
+    const now = Date.now();
+    const token = await ai.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
+        newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
+        liveConnectConstraints: { model, config: buildLiveConfig(fullPersona) },
+      },
+    });
+    if (!token.name) throw new Error("No token returned");
+    tokenName = token.name;
     tToken = Date.now() - t0;
   } catch (err) {
     console.error("live-token error:", err instanceof Error ? err.message : err);
@@ -96,7 +96,7 @@ export async function POST(req: Request) {
 
   const tDone = Date.now() - t0;
   return NextResponse.json(
-    { token: tokenName, model, sessionId: session.id },
+    { token: tokenName, model, sessionId: session.id, persona: fullPersona },
     { headers: { "Server-Timing": `auth;dur=${tAuth}, count;dur=${tCount}, token;dur=${tToken}, total;dur=${tDone}` } },
   );
 }

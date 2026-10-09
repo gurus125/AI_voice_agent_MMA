@@ -4,6 +4,8 @@ import { formatDuration, formatNumber, formatUsd } from "@/lib/format";
 import type { DashboardData } from "@/lib/types";
 import { AuthButton } from "@/components/AuthButton";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { Greeting } from "@/components/Greeting";
+import { ProfileCard } from "@/components/ProfileCard";
 import { CostDisclaimer } from "@/components/CostDisclaimer";
 import { MetricCard } from "@/components/MetricCard";
 import { SessionsTable } from "@/components/SessionsTable";
@@ -17,6 +19,11 @@ export default async function Home() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  const { data: profile } = user
+    ? await supabase.from("profiles").select("display_name, about").eq("user_id", user.id).maybeSingle()
+    : { data: null };
+  const displayName = profile?.display_name ?? "";
 
   let data: DashboardData | null = null;
   let loadError: string | null = null;
@@ -37,6 +44,13 @@ export default async function Home() {
       </header>
 
       <main className="space-y-8">
+        <div className="space-y-3">
+          <Greeting name={displayName} />
+          {user ? (
+            <ProfileCard userId={user.id} initialName={displayName} initialAbout={profile?.about ?? ""} />
+          ) : null}
+        </div>
+
         <VoiceAgentPanel />
 
         {loadError || !data ? (

@@ -292,24 +292,24 @@ export function useGeminiLive(options: { onSaved?: () => void } = {}) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ persona }),
           });
-          const body = (await res.json().catch(() => null)) as { token?: string; model?: string; sessionId?: string; error?: string } | null;
-          if (!res.ok || !body?.token || !body.model || !body.sessionId) {
+          const body = (await res.json().catch(() => null)) as { token?: string; model?: string; sessionId?: string; persona?: string; error?: string } | null;
+          if (!res.ok || !body?.token || !body.model || !body.sessionId || !body.persona) {
             throw new Error(body?.error ?? `Token request failed (${res.status}).`);
           }
           sessionIdRef.current = body.sessionId;
           lap(`token received (server: ${res.headers.get("server-timing") ?? "n/a"})`);
-          return body as { token: string; model: string; sessionId: string };
+          return body as { token: string; model: string; sessionId: string; persona: string };
         })();
         // Wait for all three to finish (even if one fails) so a saved session row is always known and can be closed.
         const settled = await Promise.allSettled([micPromise, tokenReady, audioReady]);
         const failed = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
         if (failed) throw failed.reason;
-        const data = (settled[1] as PromiseFulfilledResult<{ token: string; model: string; sessionId: string }>).value;
+        const data = (settled[1] as PromiseFulfilledResult<{ token: string; model: string; sessionId: string; persona: string }>).value;
 
         const ai = new GoogleGenAI({ apiKey: data.token, httpOptions: { apiVersion: "v1alpha" } });
         const session = await ai.live.connect({
           model: data.model,
-          config: buildLiveConfig(persona),
+          config: buildLiveConfig(data.persona), // must match the persona the token was locked to
           callbacks: {
             onmessage: handleMessage,
             onerror: (e) => fail(e?.message || "Connection error."),
