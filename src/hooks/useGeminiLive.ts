@@ -262,25 +262,30 @@ export function useGeminiLive(options: { onSaved?: () => void } = {}) {
         return;
       }
 
-      setStatus("requesting-mic");
-      try {
-        streamRef.current = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        });
-      } catch (e) {
-        activeRef.current = false;
-        setError(micErrorMessage(e));
-        setStatus("error");
-        return;
-      }
-
+      const t0 = performance.now();
+      const lap = (label: string) => console.log(`[live-timing] ${label}: ${Math.round(performance.now() - t0)} ms`);
       setStatus("connecting");
+      // Ask for the microphone right away, but do not wait for it: the token request and the audio
+      // engine setup below run at the same time, so the slowest one sets the pace instead of the sum.
+      const micPromise = navigator.mediaDevices
+        .getUserMedia({
+          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        })
+        .then(
+          (stream) => {
+            streamRef.current = stream;
+            lap("microphone ready");
+          },
+          (e) => {
+            throw new Error(micErrorMessage(e));
+          },
+        );
       try {
         // Run the two slow setup steps at the same time: asking our server for a token, and
         // getting the audio engine ready. Before, they ran one after the other.
         const ctx = new AudioContext();
         ctxRef.current = ctx;
-        const audioReady = ctx.resume().then(() => ctx.audioWorklet.addModule("/pcm-capture-worklet.js"));
+        const audioReady = ctx.resume().then(() => ctx.audioWorklet.addModule("/pcm-capture-worklet.js")).then(() => lap("audio engine ready"));
         const tokenReady = (async () => {
           const res = await fetch("/api/live-token", {
             method: "POST",
@@ -292,9 +297,14 @@ export function useGeminiLive(options: { onSaved?: () => void } = {}) {
             throw new Error(body?.error ?? `Token request failed (${res.status}).`);
           }
           sessionIdRef.current = body.sessionId;
+          lap(`token received (server: ${res.headers.get("server-timing") ?? "n/a"})`);
           return body as { token: string; model: string; sessionId: string };
         })();
-        const [data] = await Promise.all([tokenReady, audioReady]);
+        // Wait for all three to finish (even if one fails) so a saved session row is always known and can be closed.
+        const settled = await Promise.allSettled([micPromise, tokenReady, audioReady]);
+        const failed = settled.find((r): r is PromiseRejectedResult => r.status === "rejected");
+        if (failed) throw failed.reason;
+        const data = (settled[1] as PromiseFulfilledResult<{ token: string; model: string; sessionId: string }>).value;
 
         const ai = new GoogleGenAI({ apiKey: data.token, httpOptions: { apiVersion: "v1alpha" } });
         const session = await ai.live.connect({
@@ -317,6 +327,7 @@ export function useGeminiLive(options: { onSaved?: () => void } = {}) {
             },
           },
         });
+        lap("connected to Gemini");
         if (endingRef.current || !streamRef.current || !ctxRef.current) {
           session.close();
           return;

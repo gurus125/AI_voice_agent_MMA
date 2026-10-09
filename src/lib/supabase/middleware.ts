@@ -12,6 +12,9 @@ export async function updateSession(request: NextRequest) {
     return new NextResponse("Server is missing Supabase configuration (check Vercel environment variables, then redeploy).", { status: 500 });
   }
 
+  // API routes check the user themselves and return their own 401s, so skip a second login check here.
+  if (request.nextUrl.pathname.startsWith("/api")) return response;
+
   const supabase = createServerClient(
     url,
     key,

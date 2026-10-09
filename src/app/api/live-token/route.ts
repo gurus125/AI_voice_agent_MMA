@@ -6,11 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
+  const t0 = Date.now();
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Please sign in." }, { status: 401 });
+  const tAuth = Date.now() - t0;
 
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
@@ -64,6 +66,7 @@ export async function POST(req: Request) {
   tokenPromise.catch(() => {}); // handled below; stops a stray unhandled-rejection warning if we return early
 
   const { count } = await countPromise;
+  const tCount = Date.now() - t0;
   if ((count ?? 0) >= maxPerHour) {
     return NextResponse.json(
       { error: `Session limit reached (${maxPerHour} per hour). Please try again later.` },
@@ -72,8 +75,10 @@ export async function POST(req: Request) {
   }
 
   let tokenName: string;
+  let tToken = 0;
   try {
     tokenName = await tokenPromise;
+    tToken = Date.now() - t0;
   } catch (err) {
     console.error("live-token error:", err instanceof Error ? err.message : err);
     return NextResponse.json({ error: "Could not create a Live session token." }, { status: 502 });
@@ -89,5 +94,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Could not record the session." }, { status: 500 });
   }
 
-  return NextResponse.json({ token: tokenName, model, sessionId: session.id });
+  const tDone = Date.now() - t0;
+  return NextResponse.json(
+    { token: tokenName, model, sessionId: session.id },
+    { headers: { "Server-Timing": `auth;dur=${tAuth}, count;dur=${tCount}, token;dur=${tToken}, total;dur=${tDone}` } },
+  );
 }
