@@ -2,10 +2,9 @@ import { getDashboardData } from "@/lib/dashboard";
 import { createClient } from "@/lib/supabase/server";
 import { formatDuration, formatNumber, formatUsd } from "@/lib/format";
 import type { DashboardData } from "@/lib/types";
-import { AuthButton } from "@/components/AuthButton";
 import { AutoRefresh } from "@/components/AutoRefresh";
 import { Greeting } from "@/components/Greeting";
-import { ProfileCard } from "@/components/ProfileCard";
+import { ProfileMenu } from "@/components/ProfileMenu";
 import { CostDisclaimer } from "@/components/CostDisclaimer";
 import { MetricCard } from "@/components/MetricCard";
 import { SessionsTable } from "@/components/SessionsTable";
@@ -40,16 +39,18 @@ export default async function Home() {
           <h1 className="text-xl font-semibold text-white sm:text-2xl">Voice Agent Dashboard</h1>
           <p className="text-sm text-muted">Sessions, usage and estimated API cost</p>
         </div>
-        <AuthButton email={user?.email ?? null} />
+        {user ? (
+          <ProfileMenu
+            userId={user.id}
+            email={user.email ?? null}
+            initialName={displayName}
+            initialAbout={profile?.about ?? ""}
+          />
+        ) : null}
       </header>
 
       <main className="space-y-8">
-        <div className="space-y-3">
-          <Greeting name={displayName} />
-          {user ? (
-            <ProfileCard userId={user.id} initialName={displayName} initialAbout={profile?.about ?? ""} />
-          ) : null}
-        </div>
+        <Greeting name={displayName} />
 
         <VoiceAgentPanel />
 
